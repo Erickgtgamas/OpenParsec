@@ -68,11 +68,22 @@ class ParsecSDKBridge: ParsecService
 		
 		audio_init(&_audio)
 		
-		ParsecInit(ParsecSDKBridge.PARSEC_VER, nil, nil, &_parsec)
-		
-		
 		self._audioPtr = UnsafeRawPointer(_audio)
 		
+		do {
+			let reservedCfg = ["ssHost": "kessel-ws.parsec.app"]
+			let json = JSONEncoder()
+			try json.encode(reservedCfg).withUnsafeBytes { (jsonStrBPtr: UnsafeRawBufferPointer) in
+				guard let jsonStrPtr = jsonStrBPtr.baseAddress else {
+					return
+				}
+				ParsecInit(ParsecSDKBridge.PARSEC_VER, nil, jsonStrPtr, &_parsec)
+			}
+
+		} catch {
+			print("error: \(error)")
+		}
+
 	}
 	
 	deinit
@@ -379,13 +390,17 @@ class ParsecSDKBridge: ParsecService
 		}
 		keyboardMessagePress.keyboard.code = keyCode
 		ParsecClientSendMessage(_parsec, &keyboardMessagePress)
-		keyboardMessagePress.keyboard.pressed = false
-		if !isVirtualShiftOn && useShift {
-			keyboardMessagePress.keyboard.code = ParsecKeycode(rawValue: 225)
-			ParsecClientSendMessage(_parsec, &keyboardMessagePress)
-			keyboardMessagePress.keyboard.code = keyCode
+		
+		// add release delay in case some games ignore instant key release
+		DispatchQueue.global().asyncAfter(deadline: .now() + 0.02) {
+			keyboardMessagePress.keyboard.pressed = false
+			if !self.isVirtualShiftOn && useShift {
+				keyboardMessagePress.keyboard.code = ParsecKeycode(rawValue: 225)
+				ParsecClientSendMessage(self._parsec, &keyboardMessagePress)
+				keyboardMessagePress.keyboard.code = keyCode
+			}
+			ParsecClientSendMessage(self._parsec, &keyboardMessagePress)
 		}
-		ParsecClientSendMessage(_parsec, &keyboardMessagePress)
 	}
 	
 	func sendVirtualKeyboardInput(text: String, isOn: Bool) {
